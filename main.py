@@ -115,6 +115,21 @@ with mp_hands.Hands(
 				int(pretty_data["fingers"][finger][-1].y * img.shape[0])),
 				cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1, cv2.LINE_AA)
 
+		# draw a polygon connecting the wrist and the bases of all the fingers
+		# this is the palm, the size of the palm will never change, so
+		# we can use it to calculate the distance between the hand and the camera
+		palm = []
+		for finger in pretty_data["fingers"]:
+			palm.append(pretty_data["fingers"][finger][0])
+		palm.append(pretty_data["wrist"])
+		palm = [int(palm[i].x * img.shape[1]) for i in range(len(palm))], [int(palm[i].y * img.shape[0]) for i in range(len(palm))]
+		print("Palm: ", palm)
+		zipped = list(zip(palm[0], palm[1]))
+		print("Zipped: ", zipped)
+		zipped.append(zipped[0])
+		for i in range(len(zipped) - 1):
+			cv2.line(annotated_image, zipped[i], zipped[i + 1], (0,0,0), drawing_size)
+		
 
 		cv2.imwrite("hand_landmarks.jpg", annotated_image)
 
