@@ -1,7 +1,7 @@
 import cv2
 import mediapipe as mp
 from pprint import pprint
-img = cv2.imread("tu.jpg", cv2.IMREAD_COLOR)
+img = cv2.imread("hand.jpg", cv2.IMREAD_COLOR)
 # track the hand and save the landmarks as a list
 # the print the list, then save the image with the landmarks as a jpg
 mp_drawing = mp.solutions.drawing_utils
