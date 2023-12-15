@@ -24,9 +24,22 @@ def convert_to_list(hand):
 		fingers[finger] = []
 		for i in range(fingers_indexes[finger][0], fingers_indexes[finger][1] + 1):
 			fingers[finger].append(hand.landmark[i])
+	# find the middle of the hand
+	tx = wrist.x
+	ty = wrist.y
+	tz = wrist.z
+	for finger in fingers:
+		tx += fingers[finger][0].x
+		ty += fingers[finger][0].y
+		tz += fingers[finger][0].z
 	return {
 		"wrist": wrist,
-		"fingers": fingers
+		"fingers": fingers,
+		"middle": {
+			"x": tx / 6,
+			"y": ty / 6,
+			"z": tz / 6
+		}
 	}
 
 finger_colors = {
@@ -63,6 +76,16 @@ with mp_hands.Hands(
 			(int(pretty_data["wrist"].x * img.shape[1]),
 			int(pretty_data["wrist"].y * img.shape[0])),
 			5, (0,0,0), drawing_size)
+			# write "middle" on the middle, and put a dot on it
+		cv2.putText(annotated_image, "Middle",
+			(int(pretty_data["middle"]["x"] * img.shape[1] + 15),
+			int(pretty_data["middle"]["y"] * img.shape[0])),
+			cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), drawing_size // 2, cv2.LINE_AA)
+		cv2.circle(annotated_image,
+			(int(pretty_data["middle"]["x"] * img.shape[1]),
+			int(pretty_data["middle"]["y"] * img.shape[0])),
+			5, (0,0,0), drawing_size)
+
 		# write the finger names on the fingers, and put lines between the landmarks
 		for finger in pretty_data["fingers"]:
 			length_finger = len(pretty_data["fingers"][finger])
