@@ -1,0 +1,96 @@
+import cv2
+import mediapipe as mp
+from pprint import pprint
+img = cv2.imread("d.jpg", cv2.IMREAD_COLOR)
+# track the hand and save the landmarks as a list
+# the print the list, then save the image with the landmarks as a jpg
+mp_drawing = mp.solutions.drawing_utils
+mp_hands = mp.solutions.hands
+drawing_size = 4
+
+def convert_to_list(hand): 
+	wrist = hand.landmark[0]
+	fingers_indexes = {
+		"pinky": (17, 19),
+		"ring": (13, 16),
+		"middle": (9, 12),
+		"index": (5, 8),
+		"thumb": (1, 4), # inclusive
+	}
+	fingers = {
+		
+	}
+	for finger in fingers_indexes:
+		fingers[finger] = []
+		for i in range(fingers_indexes[finger][0], fingers_indexes[finger][1] + 1):
+			fingers[finger].append(hand.landmark[i])
+	return {
+		"wrist": wrist,
+		"fingers": fingers
+	}
+
+finger_colors = {
+	"thumb": (0,0,255),
+	"index": (0,255,0),
+	"middle": (255,0,0),
+	"ring": (255,255,0),
+	"pinky": (0,255,255)
+}
+
+with mp_hands.Hands(
+		static_image_mode=True,
+		max_num_hands=1,
+		min_detection_confidence=0.5) as hands:
+		results = hands.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+		data = results.multi_hand_landmarks
+		hand = data[0].landmark
+
+		annotated_image = img.copy()
+		length = len(hand)
+		print("The number of landmarks is: ", length)
+		debug_dec = length
+		length = min(length, debug_dec)
+		color_change = 255 / length
+		# goes from red to green
+		pretty_data = convert_to_list(data[0])
+		# write "Wrist" on the wrist, and put a dot on it
+		cv2.putText(annotated_image, "Wrist",
+			(int(pretty_data["wrist"].x * img.shape[1] + 15),
+			int(pretty_data["wrist"].y * img.shape[0])),
+			cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), drawing_size // 2, cv2.LINE_AA)
+		cv2.circle(annotated_image,
+			(int(pretty_data["wrist"].x * img.shape[1]),
+			int(pretty_data["wrist"].y * img.shape[0])),
+			5, (0,0,0), drawing_size)
+		# write the finger names on the fingers, and put lines between the landmarks
+		for finger in pretty_data["fingers"]:
+			length_finger = len(pretty_data["fingers"][finger])
+			for i in range(length_finger):
+				color = finger_colors[finger]
+				j = i + 1
+				# also put dots on the landmarks
+				size = int(pretty_data["fingers"][finger][i].z * 5 * 10 ** 1.75)
+				size = abs(size)
+				size = max(5, min(20, size))
+				cv2.circle(annotated_image,
+					(int(pretty_data["fingers"][finger][i].x * img.shape[1]),
+					int(pretty_data["fingers"][finger][i].y * img.shape[0])),
+					# make the size of the dot, the depth of the landmark, so closer landmarks are bigger
+					size, color, drawing_size)
+				if (j != length_finger):
+					cv2.line(annotated_image, 
+					(int(pretty_data["fingers"][finger][i].x * img.shape[1]), 
+					int(pretty_data["fingers"][finger][i].y * img.shape[0])), 
+					(int(pretty_data["fingers"][finger][j].x * img.shape[1]), 
+					int(pretty_data["fingers"][finger][j].y * img.shape[0])), 
+					color, 
+					drawing_size)
+			cv2.putText(annotated_image, finger,
+				(int(pretty_data["fingers"][finger][-1].x * img.shape[1] + 15),
+				int(pretty_data["fingers"][finger][-1].y * img.shape[0])),
+				cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1, cv2.LINE_AA)
+
+
+		cv2.imwrite("hand_landmarks.jpg", annotated_image)
+
