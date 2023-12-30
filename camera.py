@@ -119,13 +119,20 @@ def draw_hand(frame, data):
     # cv.fillPoly(frame, np.int32([points * [frame.shape[1], frame.shape[0]]]), finger_colors["wrist"])
     # now that'd fill the palm, i just want to outline
     cv.polylines(frame, np.int32([points * [frame.shape[1], frame.shape[0]]]), True, finger_colors["wrist"], z_to_size(data["wrist"]["z"]))
+    up = 0
     for finger in data["fingers"]:
         f = data["fingers"][finger]
-        put_angle(frame, data["wrist"], f[0], f[1], finger_colors[finger])
-        put_angle(frame, f[0], f[1], f[2], finger_colors[finger])
+        a = put_angle(frame, data["wrist"], f[0], f[1], finger_colors[finger])
+        b = put_angle(frame, f[0], f[1], f[2], finger_colors[finger])
         if finger != "pinky":
+            up += 0 if b < 160 else 1
             put_angle(frame, f[1], f[2], f[3], finger_colors[finger])
+        else:
+            up += 0 if a < 160 else 1
+    # put number "up" on the top left
+    cv.putText(frame, str(up), (50, 150), cv.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 2, cv.LINE_AA)
     return frame
+
 
 def calculate_angle(a, b, c):
   """
@@ -154,7 +161,7 @@ def put_angle(frame, a, b, c, color=(0, 0, 0)):
         (int(b["x"] * frame.shape[1] + 15),
         int(b["y"] * frame.shape[0])),
         cv.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv.LINE_AA)
-    return frame
+    return angle
 
 while True:
     _, frame = cap.read()
