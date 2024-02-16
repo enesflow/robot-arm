@@ -3,12 +3,20 @@ import mediapipe as mp
 import numpy as np
 import math
 from pprint import pprint
+from picamera2 import Picamera2
 
 mp_drawing = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
 
 # open camera and just display
-cap = cv.VideoCapture(0)
+cv.startWindowThread()
+picam2 = Picamera2()
+w = 1920
+h = 1080
+z = 2.5
+picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (int(w / z), int(h / z))}))
+picam2.start()
+
 
 
 # functions for hand tracking
@@ -72,7 +80,7 @@ def get_hand_data_formatted(hand):
 
 
 def z_to_size(z):
-    return min(20, max(2, abs(2 - (int(z * 5 * 10 ** 1.75)))))
+    return min(2, max(2, abs(2 - (int(z * 5 * 10 ** 1.75)))))
 
 def draw_dot(frame, x, y, z, color, size):
     cv.circle(frame, (int(x * frame.shape[1]), int(y * frame.shape[0])), size, color, -1)
@@ -122,13 +130,22 @@ def draw_hand(frame, data):
     up = 0
     for finger in data["fingers"]:
         f = data["fingers"][finger]
-        a = put_angle(frame, data["wrist"], f[0], f[1], finger_colors[finger])
-        b = put_angle(frame, f[0], f[1], f[2], finger_colors[finger])
+        arr = []
+        # arr.append(180 - calculate_angle(data["wrist"], f[0], f[1]))
+        arr.append(180 - calculate_angle(f[0], f[1], f[2]))
+        #a = put_angle(frame, data["wrist"], f[0], f[1], finger_colors[finger])
+        #b = put_angle(frame, f[0], f[1], f[2], finger_colors[finger])
         if finger != "pinky":
-            up += 0 if b < 160 else 1
-            put_angle(frame, f[1], f[2], f[3], finger_colors[finger])
-        else:
-            up += 0 if a < 160 else 1
+            pass
+            #up += 0 if b < 160 else 1
+            #put_angle(frame, f[1], f[2], f[3], finger_colors[finger])
+            # arr.append(180 - calculate_angle(f[1], f[2], f[3]))
+        avg=round(sum(arr) / len(arr))
+        cv.putText(frame, f"{avg}",
+            (int(f[1]["x"] * frame.shape[1] + 15),
+            int(f[1]["y"] * frame.shape[0])),
+            cv.FONT_HERSHEY_SIMPLEX, 0.5, finger_colors[finger], 1, cv.LINE_AA)
+        up += 0 if avg < 152 else 1
     # put number "up" on the top left
     cv.putText(frame, str(up), (50, 150), cv.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 2, cv.LINE_AA)
     return frame
@@ -146,12 +163,16 @@ def calculate_angle(a, b, c):
   Returns:
       The angle between points A, B, and C in degrees.
   """
+  div = 10
+  a["z"] /= div
+  b["z"] /= div
+  c["z"] /= div
   ab = np.array([b["x"] - a["x"], b["y"] - a["y"], b["z"] - a["z"]])  # Vector AB
   bc = np.array([c["x"] - b["x"], c["y"] - b["y"], c["z"] - b["z"]])  # Vector BC
   dot_product = np.dot(ab, bc)  # Dot product of AB and BC
   magnitudes = np.linalg.norm(ab) * np.linalg.norm(bc)  # Magnitudes of AB and BC
   angle = np.arccos(dot_product / magnitudes)  # Angle in radians
-  return np.rad2deg(angle)  # Convert to degrees
+  return int(np.rad2deg(angle))  # Convert to degrees
 
 def put_angle(frame, a, b, c, color=(0, 0, 0)):
     angle = round(180 - calculate_angle(a, b, c))
@@ -160,18 +181,19 @@ def put_angle(frame, a, b, c, color=(0, 0, 0)):
     cv.putText(frame, f"{angle}",
         (int(b["x"] * frame.shape[1] + 15),
         int(b["y"] * frame.shape[0])),
-        cv.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv.LINE_AA)
+        cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv.LINE_AA)
     return angle
 
 while True:
-    _, frame = cap.read()
+    frame = picam2.capture_array()
     hand = get_hand(frame)
     if hand:
         hand_data = get_hand_data_formatted(hand)
         frame = draw_hand(frame, hand_data)
-    cv.imshow("frame", frame)
     # if any key is pressed, exit
-    if cv.waitKey(1) != -1:
-        break
-cap.release()
+    cv.imshow("frame", frame)
+    #if cv.waitKey(1) != -1:
+    #    break
+    cv.waitKey(1)
+picam2.close()
 cv.destroyAllWindows()
