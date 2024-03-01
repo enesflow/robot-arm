@@ -1,3 +1,5 @@
+import RPi.GPIO as GPIO
+import time
 import cv2 as cv
 import mediapipe as mp
 import numpy as np
@@ -5,6 +7,7 @@ import math
 from pprint import pprint
 from picamera2 import Picamera2
 
+GPIO.cleanup()
 mp_drawing = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
 
@@ -13,10 +16,23 @@ cv.startWindowThread()
 picam2 = Picamera2()
 w = 1920
 h = 1080
-z = 5
+z = 4
 picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (int(w / z), int(h / z))}))
 picam2.start()
 
+def getPWM(pin):
+	GPIO.setmode(GPIO.BCM)
+	GPIO.setup(pin, GPIO.OUT)
+
+	pwm = GPIO.PWM(pin, 50) 
+	pwm.start(2.5)
+	return pwm
+	
+
+def setDeg(pwm, deg):
+	pwm.ChangeDutyCycle(2.5 + 10 * deg / 180)
+
+pwm = getPWM(17)
 
 
 # functions for hand tracking
@@ -131,9 +147,9 @@ def draw_hand(frame, data):
     for finger in data["fingers"]:
         f = data["fingers"][finger]
         arr = []
+        # arr.append(180 - calculate_angle(data["wrist"], f[0], f[1]))
         arr.append(180 - calculate_angle(data["wrist"], f[0], f[1]))
         arr.append(180 - calculate_angle(f[0], f[1], f[2]))
-        arr.append(arr[-1])
         #a = put_angle(frame, data["wrist"], f[0], f[1], finger_colors[finger])
         #b = put_angle(frame, f[0], f[1], f[2], finger_colors[finger])
         if finger != "pinky":
@@ -141,11 +157,14 @@ def draw_hand(frame, data):
             #up += 0 if b < 160 else 1
             #put_angle(frame, f[1], f[2], f[3], finger_colors[finger])
             # arr.append(180 - calculate_angle(f[1], f[2], f[3]))
-        avg=round(sum(arr) / len(arr))
+        avg=min(arr)
+        #if avg <= 100: avg /= 5
         cv.putText(frame, f"{avg}",
             (int(f[1]["x"] * frame.shape[1] + 15),
             int(f[1]["y"] * frame.shape[0])),
             cv.FONT_HERSHEY_SIMPLEX, 0.5, finger_colors[finger], 1, cv.LINE_AA)
+        if finger == "index":
+            setDeg(pwm, avg)
         up += 0 if avg < 152 else 1
     # put number "up" on the top left
     cv.putText(frame, str(up), (50, 150), cv.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 2, cv.LINE_AA)
@@ -173,7 +192,7 @@ def calculate_angle(a, b, c):
   dot_product = np.dot(ab, bc)  # Dot product of AB and BC
   magnitudes = np.linalg.norm(ab) * np.linalg.norm(bc)  # Magnitudes of AB and BC
   angle = np.arccos(dot_product / magnitudes)  # Angle in radians
-  return int(np.rad2deg(angle))  # Convert to degrees
+  return round(int(np.rad2deg(angle)) / 10) * 10  # Convert to degrees
 
 def put_angle(frame, a, b, c, color=(0, 0, 0)):
     angle = round(180 - calculate_angle(a, b, c))
@@ -185,16 +204,22 @@ def put_angle(frame, a, b, c, color=(0, 0, 0)):
         cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv.LINE_AA)
     return angle
 
-while True:
-    frame = picam2.capture_array()
-    hand = get_hand(frame)
-    if hand:
-        hand_data = get_hand_data_formatted(hand)
-        frame = draw_hand(frame, hand_data)
-    # if any key is pressed, exit
-    cv.imshow("frame", frame)
-    #if cv.waitKey(1) != -1:
-    #    break
-    cv.waitKey(1)
-picam2.close()
-cv.destroyAllWindows()
+try:
+    while True:
+        frame = picam2.capture_array()
+        hand = get_hand(frame)
+        time.sleep(0.6)
+        if hand:
+            hand_data = get_hand_data_formatted(hand)
+            frame = draw_hand(frame, hand_data)
+        cv.imshow("frame", frame)
+        cv.waitKey(1)
+
+        
+except:
+    print("Exiting")
+    picam2.close()
+    cv.destroyAllWindows()
+    pwm.stop()
+    GPIO.cleanup()
+
