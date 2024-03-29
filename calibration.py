@@ -7,6 +7,7 @@ import math
 from pprint import pprint
 from picamera2 import Picamera2
 from adafruit_servokit import ServoKit
+from pprint import pprint
 
 
 mp_drawing = mp.solutions.drawing_utils
@@ -32,6 +33,8 @@ min_maxes = {
     "index": [[145, 45],[180,180]], # min, max
     "thumb": [[110, 102],[177,165]], # min, max
 }
+
+history = []
 
 
 # functions for hand tracking
@@ -123,6 +126,8 @@ def scale_number(unscaled, to_min, to_max, from_min, from_max):
     unscaled -= from_min
     from_max -= from_min
     from_min = 0
+    if from_max == 0:
+        from_max = 1
     return maxx - ((to_max-to_min)*(unscaled-from_min)/(from_max-from_min)+to_min)
 def calculate_avg(wrist, f, finger):
     arr = []
@@ -140,7 +145,10 @@ def calculate_avg(wrist, f, finger):
     return sorted([0,round(sum(arr) / len(arr)),maxx])[1]
 
 # function to draw the hand data on the frame
+cnt = 0
+ctime = 18
 def draw_hand(frame, data):
+    global cnt
     # draw dots first
     for finger in data["fingers"]:
         for point in data["fingers"][finger]:
@@ -161,6 +169,7 @@ def draw_hand(frame, data):
     points.append((data["wrist"]["x"], data["wrist"]["y"]))
     points = np.array(points)
     cv.polylines(frame, np.int32([points * [frame.shape[1], frame.shape[0]]]), True, finger_colors["wrist"], z_to_size(data["wrist"]["z"]))
+    p = {}
     for finger in data["fingers"]:
         f = data["fingers"][finger]
         angle = calculate_avg(data["wrist"], f, finger)
@@ -170,22 +179,29 @@ def draw_hand(frame, data):
             cv.FONT_HERSHEY_SIMPLEX, 0.5, finger_colors[finger], 1, cv.LINE_AA)
         #if finger == "thumb":
         #    print(calculate_angle(data["wrist"], f[0], f[1]), calculate_angle(f[0], f[1], f[2]),calculate_angle(f[1],f[2],f[3]))
-        kit.servo[servos[finger]].angle = 180 - angle if finger != "thumb" else angle
+        if cnt >= ctime * 2:
+            kit.servo[servos[finger]].angle = 180 - angle if finger != "thumb" else angle
+        if finger != "thumb":
+            p[finger] = [calculate_angle(data["wrist"], f[0], f[1]),calculate_angle(f[0], f[1], f[2])]
+        else:
+            wrist_to_f1 = calculate_angle(f[0], f[1], f[2])
+            f1_to_f2 = calculate_angle(f[1], f[2], f[3])
+            p[finger] = [wrist_to_f1,f1_to_f2]
+    if cnt < ctime * 2:
+        if cnt < ctime:
+            cv.putText(frame, f"Avucunuzu acinn {ctime - cnt}", (50,50),
+            cv.FONT_HERSHEY_SIMPLEX, 1, finger_colors[finger], 2, cv.LINE_AA)
+        else:
+            cv.putText(frame, f"Avucunuzu kapayinn {ctime*2 - cnt}", (50,50),
+            cv.FONT_HERSHEY_SIMPLEX, 1, finger_colors[finger], 2, cv.LINE_AA)
+        history.append(p)
+        save_res()
+        cnt+=1
+              
     return frame
 
 
 def calculate_angle(a, b, c):
-  """
-  Calculates the angle between three points in degrees, considering all three axes.
-
-  Args:
-      a: A dictionary containing the x, y, and z coordinates of point A.
-      b: A dictionary containing the x, y, and z coordinates of point B.
-      c: A dictionary containing the x, y, and z coordinates of point C.
-
-  Returns:
-      The angle between points A, B, and C in degrees.
-  """
   div = 1
   a["z"] /= div
   b["z"] /= div
@@ -197,6 +213,36 @@ def calculate_angle(a, b, c):
   angle = np.arccos(dot_product / magnitudes)  # Angle in radians
   return 180 - round(int(np.rad2deg(angle)))  # Convert to degrees
 
+def save_res():
+    global history
+    hmax = 1000
+    if len(history) > hmax:
+        history = history[-hmax:]
+    l = min(10,len(history))
+    for finger in min_maxes:
+        for i in range(2):
+            hs = sorted(history, key=lambda d: d[finger][i])
+            t = 0
+            for j in range(l):
+                t += hs[j][finger][i]
+            t /= l
+            t2 = 0
+            hs = hs[::-1]
+            for j in range(l):
+                t2 += hs[j][finger][i]
+            t2 /= l
+            t = int(t)
+            t2 = int(t2)
+            if t2 == t:
+                t2+=1
+                t-=1
+            min_maxes[finger][0][i] = t
+            min_maxes[finger][1][i] = t2
+    #pprint(min_maxes)
+    #print("--")
+            
+    
+
 def put_angle(frame, a, b, c, color=(0, 0, 0)):
     angle = round(calculate_angle(a, b, c))
     # cv.putText(frame, str(angle), (int(center["x"] * frame.shape[1]), int(center["y"] * frame.shape[0])), cv.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 4, cv.LINE_AA)
@@ -207,21 +253,14 @@ def put_angle(frame, a, b, c, color=(0, 0, 0)):
         cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv.LINE_AA)
     return angle
 
-try:
-    while True:
-        frame = picam2.capture_array()
-        hand = get_hand(frame)
-        #time.sleep(0.3)
-        if hand:
-            hand_data = get_hand_data_formatted(hand)
-            frame = draw_hand(frame, hand_data)
-        cv.imshow("frame", frame)
-        cv.waitKey(1)
+while True:
+    frame = picam2.capture_array()
+    hand = get_hand(frame)
+    #time.sleep(0.3)
+    if hand:
+        hand_data = get_hand_data_formatted(hand)
+        frame = draw_hand(frame, hand_data)
+    cv.imshow("frame", frame)
+    cv.waitKey(1)
 
-        
-except Exception as e:
-    print("Exiting")
-    print(e)
-    picam2.close()
-    cv.destroyAllWindows()
 

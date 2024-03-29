@@ -1,4 +1,4 @@
-
+import RPi.GPIO as GPIO
 import time
 import cv2 as cv
 import mediapipe as mp
@@ -6,9 +6,8 @@ import numpy as np
 import math
 from pprint import pprint
 from picamera2 import Picamera2
-from adafruit_servokit import ServoKit
 
-
+GPIO.cleanup()
 mp_drawing = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
 
@@ -17,20 +16,35 @@ cv.startWindowThread()
 picam2 = Picamera2()
 w = 1920
 h = 1080
-z = 3
+z = 4
 picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (int(w / z), int(h / z))}))
 picam2.start()
-kit = ServoKit(channels=16)
-servos = {
-    "thumb": 0, "index": 7, "middle": 2, "ring": 3, "pinky": 4
+
+def getPWM(pin):
+	GPIO.setmode(GPIO.BCM)
+	GPIO.setup(pin, GPIO.OUT)
+
+	pwm = GPIO.PWM(pin, 50) 
+	pwm.start(2.5)
+	return pwm
+	
+def setDeg(pwm, deg):
+    if pwm:
+        pwm.ChangeDutyCycle(2.5 + 10 * deg / 180)
+
+pwms = {
+    "pinky":None,
+    "ring":None,
+    "middle":None,
+    "index":getPWM(17),
+    "thumb":None
 }
-maxx = 150
 min_maxes = {
-    "pinky": [[130, 30],[180,180]], # min, max
-    "ring": [[143, 43],[180,180]], # min, max
-    "middle": [[130, 50],[180,180]], # min, max
-    "index": [[145, 45],[180,180]], # min, max
-    "thumb": [[110, 102],[177,165]], # min, max
+    "pinky": [[130, 30],[177,177]], # min, max
+    "ring": [[140, 40],[178,178]], # min, max
+    "middle": [[130, 50],[170,170]], # min, max
+    "index": [[145, 45],[176,176]], # min, max
+    "thumb": [[145, 135],[150,170]], # min, max
 }
 
 
@@ -123,21 +137,14 @@ def scale_number(unscaled, to_min, to_max, from_min, from_max):
     unscaled -= from_min
     from_max -= from_min
     from_min = 0
-    return maxx - ((to_max-to_min)*(unscaled-from_min)/(from_max-from_min)+to_min)
+    return 180 - ((to_max-to_min)*(unscaled-from_min)/(from_max-from_min)+to_min)
 def calculate_avg(wrist, f, finger):
     arr = []
     wrist_to_f1 = calculate_angle(wrist, f[0], f[1])
     f1_to_f2 = calculate_angle(f[0], f[1], f[2])
-    if finger == "thumb":
-        wrist_to_f1 = calculate_angle(f[0], f[1], f[2])
-        f1_to_f2 = calculate_angle(f[1], f[2], f[3])
-        if wrist_to_f1 < min_maxes[finger][0][0] + 10:
-            f1_to_f2 = min_maxes[finger][0][1]
-        elif f1_to_f2 < min_maxes[finger][0][1] + 10:
-            wrist_to_f1 = min_maxes[finger][0][0]
-    arr.append(scale_number(wrist_to_f1, maxx, 0, min_maxes[finger][0][0],min_maxes[finger][1][0]))
-    arr.append(scale_number(f1_to_f2, maxx, 0, min_maxes[finger][0][1],min_maxes[finger][1][1]))
-    return sorted([0,round(sum(arr) / len(arr)),maxx])[1]
+    arr.append(scale_number(wrist_to_f1, 180, 0, min_maxes[finger][0][0],min_maxes[finger][1][0]))
+    arr.append(scale_number(f1_to_f2, 180, 0, min_maxes[finger][0][1],min_maxes[finger][1][1]))
+    return sorted([0,round(sum(arr) / len(arr)),180])[1]
 
 # function to draw the hand data on the frame
 def draw_hand(frame, data):
@@ -160,7 +167,10 @@ def draw_hand(frame, data):
         points.append((data["fingers"][finger][0]["x"], data["fingers"][finger][0]["y"]))
     points.append((data["wrist"]["x"], data["wrist"]["y"]))
     points = np.array(points)
+    # cv.fillPoly(frame, np.int32([points * [frame.shape[1], frame.shape[0]]]), finger_colors["wrist"])
+    # now that'd fill the palm, i just want to outline
     cv.polylines(frame, np.int32([points * [frame.shape[1], frame.shape[0]]]), True, finger_colors["wrist"], z_to_size(data["wrist"]["z"]))
+    up = 0
     for finger in data["fingers"]:
         f = data["fingers"][finger]
         angle = calculate_avg(data["wrist"], f, finger)
@@ -168,9 +178,12 @@ def draw_hand(frame, data):
             (int(f[1]["x"] * frame.shape[1] + 15),
             int(f[1]["y"] * frame.shape[0])),
             cv.FONT_HERSHEY_SIMPLEX, 0.5, finger_colors[finger], 1, cv.LINE_AA)
-        #if finger == "thumb":
-        #    print(calculate_angle(data["wrist"], f[0], f[1]), calculate_angle(f[0], f[1], f[2]),calculate_angle(f[1],f[2],f[3]))
-        kit.servo[servos[finger]].angle = 180 - angle if finger != "thumb" else angle
+        setDeg(pwms[finger], angle)
+        if finger == "thumb":
+            print(calculate_angle(data["wrist"], f[0], f[1]),calculate_angle(f[0], f[1], f[2]))
+        up += 0 if angle < 152 else 1
+    # put number "up" on the top left
+    cv.putText(frame, str(up), (50, 150), cv.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 2, cv.LINE_AA)
     return frame
 
 
@@ -224,4 +237,8 @@ except Exception as e:
     print(e)
     picam2.close()
     cv.destroyAllWindows()
+    for pwm in pwms.values():
+        if pwm:
+            pwm.stop()
+    GPIO.cleanup()
 
