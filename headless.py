@@ -18,20 +18,20 @@ cv.startWindowThread()
 picam2 = Picamera2()
 w = 1920
 h = 1080
-z = 3.2
+z = 3
 picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (int(w / z), int(h / z))}))
 picam2.start()
 kit = ServoKit(channels=16)
 servos = {
-    "thumb": 8, "index": 7, "middle": 2, "ring": 3, "pinky": 4
+    "thumb": 0, "index": 7, "middle": 2, "ring": 3, "pinky": 4
 }
 maxx = 150
 min_maxes = {
-    "pinky": [0, 180], # min, max
-    "ring": [0, 180], # min, max
-    "middle": [0, 180], # min, max
-    "index": [0, 180], # min, max
-    "thumb": [0, 180], # min, max
+    "pinky": [[130, 30],[180,180]], # min, max
+    "ring": [[143, 43],[180,180]], # min, max
+    "middle": [[130, 50],[180,180]], # min, max
+    "index": [[145, 45],[180,180]], # min, max
+    "thumb": [[110, 102],[177,165]], # min, max
 }
 
 history = []
@@ -129,41 +129,24 @@ def scale_number(unscaled, to_min, to_max, from_min, from_max):
     if from_max == 0:
         from_max = 1
     return maxx - ((to_max-to_min)*(unscaled-from_min)/(from_max-from_min)+to_min)
-def calculate_avg(wrist, f, finger,raw=False):
-    OldValue =  calculate_angle(wrist,f[0],f[-1])
-    if raw:
-        return OldValue
-    OldMin = min_maxes[finger][0]
-    OldMax = min_maxes[finger][1]
-    NewMin = 0
-    NewMax = 180
-    OldRange = (OldMax - OldMin)  
-    NewRange = (NewMax - NewMin)  
-    NewValue = (((OldValue - OldMin) * NewRange) / OldRange) + NewMin
-    
-    def reversea(x): 
-        return (math.exp((x + 11.603) / 62.91)+1.202)/0.123
-    return sorted([0,round(reversea(NewValue)),180])[1]
-    #arr = []
-    #wrist_to_f1 = calculate_angle(wrist, f[0], f[1])
-    #f1_to_f2 = calculate_angle(f[0], f[1], f[2])
-    #if finger == "thumb":
-    #    wrist_to_f1 = calculate_angle(f[0], f[1], f[2])
-    #    f1_to_f2 = calculate_angle(f[1], f[2], f[3])
-    #    if wrist_to_f1 < min_maxes[finger][0][0] + 10:
-    #        f1_to_f2 = min_maxes[finger][0][1]
-    #    elif f1_to_f2 < min_maxes[finger][0][1] + 10:
-    #        wrist_to_f1 = min_maxes[finger][0][0]
-    #arr.append(scale_number(wrist_to_f1, maxx, 0, min_maxes[finger][0][0],min_maxes[finger][1][0]))
-    #arr.append(scale_number(f1_to_f2, maxx, 0, min_maxes[finger][0][1],min_maxes[finger][1][1]))
-    #return sorted([0,round(sum(arr) / len(arr)),maxx])[1]
+def calculate_avg(wrist, f, finger):
+    arr = []
+    wrist_to_f1 = calculate_angle(wrist, f[0], f[1])
+    f1_to_f2 = calculate_angle(f[0], f[1], f[2])
+    if finger == "thumb":
+        wrist_to_f1 = calculate_angle(f[0], f[1], f[2])
+        f1_to_f2 = calculate_angle(f[1], f[2], f[3])
+        if wrist_to_f1 < min_maxes[finger][0][0] + 10:
+            f1_to_f2 = min_maxes[finger][0][1]
+        elif f1_to_f2 < min_maxes[finger][0][1] + 10:
+            wrist_to_f1 = min_maxes[finger][0][0]
+    arr.append(scale_number(wrist_to_f1, maxx, 0, min_maxes[finger][0][0],min_maxes[finger][1][0]))
+    arr.append(scale_number(f1_to_f2, maxx, 0, min_maxes[finger][0][1],min_maxes[finger][1][1]))
+    return sorted([0,round(sum(arr) / len(arr)),maxx])[1]
 
 # function to draw the hand data on the frame
 cnt = 0
-ctime = 13
-avg = {}
-prev = {}
-frmcnt = 3
+ctime = 18
 def draw_hand(frame, data):
     global cnt
     # draw dots first
@@ -189,7 +172,7 @@ def draw_hand(frame, data):
     p = {}
     for finger in data["fingers"]:
         f = data["fingers"][finger]
-        angle = calculate_avg(data["wrist"], f, finger, raw=(cnt<ctime*2))
+        angle = calculate_avg(data["wrist"], f, finger)
         cv.putText(frame, f"{angle}",
             (int(f[1]["x"] * frame.shape[1] + 15),
             int(f[1]["y"] * frame.shape[0])),
@@ -197,32 +180,23 @@ def draw_hand(frame, data):
         #if finger == "thumb":
         #    print(calculate_angle(data["wrist"], f[0], f[1]), calculate_angle(f[0], f[1], f[2]),calculate_angle(f[1],f[2],f[3]))
         if cnt >= ctime * 2:
-            if not finger in avg:
-                avg[finger] = []
-            avg[finger].append(angle)
-            if cnt % frmcnt == 0:
-                avg_angle = sum(avg[finger]) / frmcnt
-                print(finger,round(avg_angle))
-                if not finger in prev or abs(avg_angle - prev[finger]) > 10:
-                    print(finger, avg_angle)
-                    kit.servo[servos[finger]].angle = 180 - avg_angle if finger != "thumb" else avg_angle
-                    prev[finger] = avg_angle
-                avg[finger] = []
-            
-            
-        p[finger] = angle
+            kit.servo[servos[finger]].angle = 180 - angle if finger != "thumb" else angle
+        if finger != "thumb":
+            p[finger] = [calculate_angle(data["wrist"], f[0], f[1]),calculate_angle(f[0], f[1], f[2])]
+        else:
+            wrist_to_f1 = calculate_angle(f[0], f[1], f[2])
+            f1_to_f2 = calculate_angle(f[1], f[2], f[3])
+            p[finger] = [wrist_to_f1,f1_to_f2]
     if cnt < ctime * 2:
         if cnt < ctime:
-            print(f"Avucunuzu acinn {ctime - cnt}")
             cv.putText(frame, f"Avucunuzu acinn {ctime - cnt}", (50,50),
             cv.FONT_HERSHEY_SIMPLEX, 1, finger_colors[finger], 2, cv.LINE_AA)
         else:
-            print(f"Avucunuzu kapayinn {ctime*2 - cnt}")
             cv.putText(frame, f"Avucunuzu kapayinn {ctime*2 - cnt}", (50,50),
             cv.FONT_HERSHEY_SIMPLEX, 1, finger_colors[finger], 2, cv.LINE_AA)
         history.append(p)
         save_res()
-    cnt+=1
+        cnt+=1
               
     return frame
 
@@ -246,23 +220,24 @@ def save_res():
         history = history[-hmax:]
     l = min(10,len(history))
     for finger in min_maxes:
-        hs = sorted(history, key=lambda d: d[finger])
-        t = 0
-        for j in range(l):
-            t += hs[j][finger]
-        t /= l
-        t2 = 0
-        hs = hs[::-1]
-        for j in range(l):
-            t2 += hs[j][finger]
-        t2 /= l
-        t = int(t)
-        t2 = int(t2)
-        if t2 == t:
-            t2+=1
-            t-=1
-        min_maxes[finger][0] = t
-        min_maxes[finger][1] = t2
+        for i in range(2):
+            hs = sorted(history, key=lambda d: d[finger][i])
+            t = 0
+            for j in range(l):
+                t += hs[j][finger][i]
+            t /= l
+            t2 = 0
+            hs = hs[::-1]
+            for j in range(l):
+                t2 += hs[j][finger][i]
+            t2 /= l
+            t = int(t)
+            t2 = int(t2)
+            if t2 == t:
+                t2+=1
+                t-=1
+            min_maxes[finger][0][i] = t
+            min_maxes[finger][1][i] = t2
     #pprint(min_maxes)
     #print("--")
             
@@ -282,10 +257,9 @@ while True:
     frame = picam2.capture_array()
     hand = get_hand(frame)
     if hand:
+        print("There is a hand")
         hand_data = get_hand_data_formatted(hand)
         frame = draw_hand(frame, hand_data)
     else:
-        print("el yok!!!!")
-    cv.imshow("frame", frame)
-    cv.waitKey(1)
-
+        print("NO hand")
+    time.sleep(0.1)
